@@ -16,6 +16,9 @@ export type {
   FeedSource,
   FeedSourceInsert,
   FeedSourceUpdate,
+  BrandTemplate as BrandTemplateRow,
+  BrandTemplateInsert,
+  BrandTemplateUpdate,
 } from "@/lib/supabase/database.types";
 
 // Frontend-specific types

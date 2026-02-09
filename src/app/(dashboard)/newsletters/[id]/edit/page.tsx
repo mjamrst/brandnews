@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   DndContext,
   closestCenter,
@@ -34,43 +34,128 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Eye, Globe, Mail, Send, Search, Image } from "lucide-react";
+import { Eye, Globe, Mail, Send, Search, Image, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { mockArticles, mockNewsletters, mockBrandTemplates } from "@/lib/mock-data";
+import { getNewsletter, createNewsletter, getNewsletterWithArticles } from "@/lib/api/newsletters";
+import { listArticlesWithTags } from "@/lib/api/articles";
+import { listBrandTemplates } from "@/lib/api/brand-templates";
 import { applyBrandConfig } from "@/lib/templates/brand";
 import type { BrandConfig } from "@/lib/templates/types";
-import type { ArticleWithTags } from "@/types";
+import type { ArticleWithTags, BrandTemplate } from "@/types";
+import type { Newsletter } from "@/lib/supabase/database.types";
 
 export default function NewsletterEditPage() {
   const params = useParams();
-  const newsletter = mockNewsletters.find((n) => n.id === params.id) || mockNewsletters[0];
+  const router = useRouter();
+  const newsletterId = params.id as string;
 
   const buildDataConsumed = useRef(false);
+  const [newsletter, setNewsletter] = useState<Newsletter | null>(null);
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [templateOverride, setTemplateOverride] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   // Brand state
+  const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string>("none");
   const [headerImageOverride, setHeaderImageOverride] = useState("");
   const [brandConfig, setBrandConfig] = useState<BrandConfig | null>(null);
   const [brandName, setBrandName] = useState("");
 
-  const [stagedArticles, setStagedArticles] = useState<StagedArticle[]>(() => {
-    return mockArticles.slice(0, 4).map((article, i) => ({
-      article,
-      customHeadline: "",
-      customSummary: "",
-      whyItMatters: "",
-      position: i,
-    }));
-  });
+  const [stagedArticles, setStagedArticles] = useState<StagedArticle[]>([]);
+  const [allArticles, setAllArticles] = useState<ArticleWithTags[]>([]);
 
   const [previewMode, setPreviewMode] = useState<"web" | "email">("web");
   const [articleSearch, setArticleSearch] = useState("");
 
-  // Consume sessionStorage build-newsletter data once on mount
+  // Load data on mount
   useEffect(() => {
-    if (buildDataConsumed.current) return;
+    let cancelled = false;
+
+    async function loadData() {
+      try {
+        // Load brand templates and articles in parallel
+        const [brands, { articles: fetchedArticles }] = await Promise.all([
+          listBrandTemplates(),
+          listArticlesWithTags({ limit: 100 }),
+        ]);
+
+        if (cancelled) return;
+
+        // Map article_tags to flat tags for component compatibility
+        const mappedArticles: ArticleWithTags[] = fetchedArticles.map((a: ArticleWithTags & { article_tags?: { tags: { id: string; name: string; category: string | null } }[] }) => ({
+          ...a,
+          tags: a.article_tags?.map((at) => at.tags).filter(Boolean) ?? [],
+        }));
+
+        setBrandTemplates(brands as unknown as BrandTemplate[]);
+        setAllArticles(mappedArticles);
+
+        // Load newsletter if not "new-draft"
+        if (newsletterId !== "new-draft") {
+          const nlWithArticles = await getNewsletterWithArticles(newsletterId);
+          if (cancelled) return;
+          setNewsletter(nlWithArticles);
+
+          // Map existing newsletter articles to staged articles
+          if (nlWithArticles.newsletter_articles) {
+            type NewsletterArticleJoin = {
+              article_id: string;
+              position: number;
+              section: string | null;
+              custom_headline: string | null;
+              custom_summary: string | null;
+              articles: {
+                id: string;
+                url: string;
+                title: string;
+                headline: string | null;
+                summary: string | null;
+                thumbnail_url: string | null;
+                source_name: string | null;
+                source_favicon: string | null;
+                author: string | null;
+                published_at: string | null;
+              };
+            };
+            const sorted = [...nlWithArticles.newsletter_articles].sort(
+              (a: NewsletterArticleJoin, b: NewsletterArticleJoin) => a.position - b.position
+            );
+            const staged: StagedArticle[] = sorted.map((na: NewsletterArticleJoin, i: number) => ({
+              article: {
+                ...na.articles,
+                ingested_at: "",
+                ingested_by: null,
+                raw_content: null,
+                status: "active",
+                search_vector: null,
+                created_at: "",
+                updated_at: "",
+                tags: [],
+              } as ArticleWithTags,
+              customHeadline: na.custom_headline || "",
+              customSummary: na.custom_summary || "",
+              whyItMatters: "",
+              position: i,
+            }));
+            setStagedArticles(staged);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load editor data:", err);
+        toast.error("Failed to load editor data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadData();
+    return () => { cancelled = true; };
+  }, [newsletterId]);
+
+  // Consume sessionStorage build-newsletter data once after data loads
+  useEffect(() => {
+    if (loading || buildDataConsumed.current || allArticles.length === 0) return;
     buildDataConsumed.current = true;
 
     try {
@@ -90,7 +175,7 @@ export default function NewsletterEditPage() {
 
       if (brandTemplateId && brandTemplateId !== "none") {
         setSelectedBrandId(brandTemplateId);
-        const brand = mockBrandTemplates.find((b) => b.id === brandTemplateId);
+        const brand = brandTemplates.find((b) => b.id === brandTemplateId);
         if (brand) {
           setBrandName(brand.name);
           setBrandConfig(applyBrandConfig({
@@ -114,7 +199,7 @@ export default function NewsletterEditPage() {
 
       if (articleIds && articleIds.length > 0) {
         const idSet = new Set(articleIds);
-        const matched = mockArticles.filter((a) => idSet.has(a.id));
+        const matched = allArticles.filter((a) => idSet.has(a.id));
         if (matched.length > 0) {
           setStagedArticles(
             matched.map((article, i) => ({
@@ -130,7 +215,7 @@ export default function NewsletterEditPage() {
     } catch {
       // Ignore malformed sessionStorage data
     }
-  }, []);
+  }, [loading, allArticles, brandTemplates]);
 
   // Update brand config when brand selection changes
   const handleBrandChange = useCallback((brandId: string) => {
@@ -140,7 +225,7 @@ export default function NewsletterEditPage() {
       setBrandName("");
       return;
     }
-    const brand = mockBrandTemplates.find((b) => b.id === brandId);
+    const brand = brandTemplates.find((b) => b.id === brandId);
     if (!brand) return;
     setBrandName(brand.name);
     setBrandConfig(applyBrandConfig({
@@ -156,7 +241,7 @@ export default function NewsletterEditPage() {
       footer_text: brand.footer_text || "Powered by The Brief",
       show_why_it_matters: brand.show_why_it_matters,
     }));
-  }, []);
+  }, [brandTemplates]);
 
   // Merge header image override into brand config
   const effectiveBrandConfig = brandConfig
@@ -230,7 +315,7 @@ export default function NewsletterEditPage() {
 
   // Available articles for adding (not already staged)
   const stagedIds = new Set(stagedArticles.map((s) => s.article.id));
-  const availableArticles = mockArticles.filter((a) => {
+  const availableArticles = allArticles.filter((a) => {
     if (stagedIds.has(a.id)) return false;
     if (!articleSearch) return true;
     const q = articleSearch.toLowerCase();
@@ -242,7 +327,16 @@ export default function NewsletterEditPage() {
 
   const displayTitle = titleOverride || newsletter?.title || "Newsletter Builder";
   const displayTemplateId = templateOverride || newsletter?.template_id || "the-rundown";
-  const selectedBrand = mockBrandTemplates.find((b) => b.id === selectedBrandId);
+  const selectedBrand = brandTemplates.find((b) => b.id === selectedBrandId);
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">Loading editor...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -286,7 +380,7 @@ export default function NewsletterEditPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No brand</SelectItem>
-                  {mockBrandTemplates.map((b) => (
+                  {brandTemplates.map((b) => (
                     <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                   ))}
                 </SelectContent>

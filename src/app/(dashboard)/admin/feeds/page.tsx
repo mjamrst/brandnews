@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,20 +32,38 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { mockFeedSources } from "@/lib/mock-data";
+import {
+  listFeedSources,
+  createFeedSource,
+  updateFeedSource,
+  deleteFeedSource,
+  toggleFeedSource,
+} from "@/lib/api/feed-sources";
 import type { FeedSource } from "@/types";
 
 export default function FeedsAdminPage() {
-  const [feeds, setFeeds] = useState<FeedSource[]>(mockFeedSources);
+  const [feeds, setFeeds] = useState<FeedSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [polling, setPolling] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingFeed, setEditingFeed] = useState<FeedSource | null>(null);
   const [formName, setFormName] = useState("");
   const [formUrl, setFormUrl] = useState("");
   const [formType, setFormType] = useState<string>("rss");
   const [formInterval, setFormInterval] = useState("120");
+
+  useEffect(() => {
+    listFeedSources()
+      .then(setFeeds)
+      .catch((err) => {
+        console.error("Failed to load feed sources:", err);
+        toast.error("Failed to load feed sources");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const openNew = () => {
     setEditingFeed(null);
@@ -65,43 +83,72 @@ export default function FeedsAdminPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formName.trim() || !formUrl.trim()) return;
-    if (editingFeed) {
-      setFeeds((prev) =>
-        prev.map((f) =>
-          f.id === editingFeed.id
-            ? { ...f, name: formName, url: formUrl, feed_type: formType, fetch_interval_minutes: parseInt(formInterval) }
-            : f
-        )
-      );
-      toast.success("Feed source updated");
-    } else {
-      const newFeed: FeedSource = {
-        id: `f${Date.now()}`,
-        name: formName,
-        url: formUrl,
-        feed_type: formType,
-        active: true,
-        last_fetched_at: null,
-        fetch_interval_minutes: parseInt(formInterval),
-        created_at: new Date().toISOString(),
-      };
-      setFeeds((prev) => [...prev, newFeed]);
-      toast.success("Feed source added");
+    try {
+      if (editingFeed) {
+        const updated = await updateFeedSource(editingFeed.id, {
+          name: formName,
+          url: formUrl,
+          feed_type: formType,
+          fetch_interval_minutes: parseInt(formInterval),
+        });
+        setFeeds((prev) => prev.map((f) => (f.id === editingFeed.id ? updated : f)));
+        toast.success("Feed source updated");
+      } else {
+        const created = await createFeedSource({
+          name: formName,
+          url: formUrl,
+          feed_type: formType,
+          fetch_interval_minutes: parseInt(formInterval),
+        });
+        setFeeds((prev) => [...prev, created]);
+        toast.success("Feed source added");
+      }
+      setDialogOpen(false);
+    } catch (err) {
+      console.error("Failed to save feed source:", err);
+      toast.error("Failed to save feed source");
     }
-    setDialogOpen(false);
   };
 
-  const toggleActive = (id: string) => {
-    setFeeds((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, active: !f.active } : f))
-    );
+  const handleToggleActive = async (id: string, currentActive: boolean) => {
+    try {
+      const updated = await toggleFeedSource(id, !currentActive);
+      setFeeds((prev) => prev.map((f) => (f.id === id ? updated : f)));
+    } catch (err) {
+      console.error("Failed to toggle feed:", err);
+      toast.error("Failed to toggle feed");
+    }
   };
 
-  const deleteFeed = (id: string) => {
-    setFeeds((prev) => prev.filter((f) => f.id !== id));
-    toast.success("Feed source deleted");
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteFeedSource(id);
+      setFeeds((prev) => prev.filter((f) => f.id !== id));
+      toast.success("Feed source deleted");
+    } catch (err) {
+      console.error("Failed to delete feed:", err);
+      toast.error("Failed to delete feed source");
+    }
+  };
+
+  const handlePollAll = async () => {
+    setPolling(true);
+    try {
+      const res = await fetch("/api/feeds/poll", { method: "POST" });
+      if (!res.ok) throw new Error("Poll failed");
+      const result = await res.json();
+      toast.success(`Polled feeds: ${result.polled ?? 0} feeds processed`);
+      // Refresh feeds to update last_fetched_at
+      const refreshed = await listFeedSources();
+      setFeeds(refreshed);
+    } catch (err) {
+      console.error("Failed to poll feeds:", err);
+      toast.error("Failed to poll feeds");
+    } finally {
+      setPolling(false);
+    }
   };
 
   return (
@@ -110,9 +157,9 @@ export default function FeedsAdminPage() {
         title="Feed Sources"
         actions={
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => toast.success("All feeds polled")}>
-              <RefreshCw className="mr-1 h-4 w-4" />
-              Poll All
+            <Button variant="outline" size="sm" onClick={handlePollAll} disabled={polling}>
+              <RefreshCw className={`mr-1 h-4 w-4 ${polling ? "animate-spin" : ""}`} />
+              {polling ? "Polling..." : "Poll All"}
             </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
@@ -170,51 +217,58 @@ export default function FeedsAdminPage() {
 
       <ScrollArea className="flex-1">
         <div className="p-6">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>URL</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Interval</TableHead>
-                <TableHead>Last Fetched</TableHead>
-                <TableHead>Active</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {feeds.map((feed) => (
-                <TableRow key={feed.id}>
-                  <TableCell className="font-medium">{feed.name}</TableCell>
-                  <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
-                    {feed.url}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="text-xs">{feed.feed_type.toUpperCase()}</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm">{feed.fetch_interval_minutes}m</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {feed.last_fetched_at
-                      ? format(new Date(feed.last_fetched_at), "MMM d, h:mm a")
-                      : "Never"}
-                  </TableCell>
-                  <TableCell>
-                    <Switch checked={feed.active} onCheckedChange={() => toggleActive(feed.id)} />
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(feed)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteFeed(feed.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading feed sources...</span>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>URL</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Interval</TableHead>
+                  <TableHead>Last Fetched</TableHead>
+                  <TableHead>Active</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {feeds.map((feed) => (
+                  <TableRow key={feed.id}>
+                    <TableCell className="font-medium">{feed.name}</TableCell>
+                    <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
+                      {feed.url}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{feed.feed_type.toUpperCase()}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm">{feed.fetch_interval_minutes}m</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {feed.last_fetched_at
+                        ? format(new Date(feed.last_fetched_at), "MMM d, h:mm a")
+                        : "Never"}
+                    </TableCell>
+                    <TableCell>
+                      <Switch checked={feed.active} onCheckedChange={() => handleToggleActive(feed.id, feed.active)} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(feed)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(feed.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </ScrollArea>
     </div>

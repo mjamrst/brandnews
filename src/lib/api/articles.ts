@@ -54,6 +54,51 @@ export async function listArticles(params: ArticleSearchParams = {}): Promise<{ 
   return { articles: data ?? [], count: count ?? 0 };
 }
 
+export async function listArticlesWithTags(params: ArticleSearchParams = {}): Promise<{ articles: ArticleWithTags[]; count: number }> {
+  const supabase = createClient();
+  const { limit = 50, offset = 0 } = params;
+
+  let query = supabase
+    .from('articles')
+    .select(`
+      *,
+      article_tags (
+        tag_id,
+        source,
+        tags (id, name, category)
+      )
+    `, { count: 'exact' });
+
+  if (params.status) {
+    query = query.eq('status', params.status);
+  } else {
+    query = query.eq('status', 'active');
+  }
+
+  if (params.sourceName) {
+    query = query.eq('source_name', params.sourceName);
+  }
+
+  if (params.dateFrom) {
+    query = query.gte('published_at', params.dateFrom);
+  }
+
+  if (params.dateTo) {
+    query = query.lte('published_at', params.dateTo);
+  }
+
+  if (params.query) {
+    query = query.textSearch('search_vector', params.query, { type: 'websearch' });
+  }
+
+  const { data, error, count } = await query
+    .order('published_at', { ascending: false, nullsFirst: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) throw error;
+  return { articles: (data ?? []) as ArticleWithTags[], count: count ?? 0 };
+}
+
 export async function searchArticles(searchQuery: string, limit = 20): Promise<Article[]> {
   const supabase = createClient();
   const { data, error } = await supabase

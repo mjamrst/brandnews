@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,9 +23,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { mockTags } from "@/lib/mock-data";
+import { listTags, createTag, updateTag, deleteTag } from "@/lib/api/tags";
 import type { Tag } from "@/types";
 
 const categoryColors: Record<string, string> = {
@@ -35,11 +35,22 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function TagsAdminPage() {
-  const [tags, setTags] = useState<Tag[]>(mockTags);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [formName, setFormName] = useState("");
   const [formCategory, setFormCategory] = useState("topic");
+
+  useEffect(() => {
+    listTags()
+      .then(setTags)
+      .catch((err) => {
+        console.error("Failed to load tags:", err);
+        toast.error("Failed to load tags");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const tagsByCategory = useMemo(() => {
     const grouped: Record<string, Tag[]> = {};
@@ -65,32 +76,35 @@ export default function TagsAdminPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formName.trim()) return;
     const normalized = formName.trim().toLowerCase().replace(/\s+/g, "-");
-    if (editingTag) {
-      setTags((prev) =>
-        prev.map((t) =>
-          t.id === editingTag.id ? { ...t, name: normalized, category: formCategory } : t
-        )
-      );
-      toast.success("Tag updated");
-    } else {
-      const newTag: Tag = {
-        id: `t${Date.now()}`,
-        name: normalized,
-        category: formCategory,
-        created_at: new Date().toISOString(),
-      };
-      setTags((prev) => [...prev, newTag]);
-      toast.success("Tag created");
+    try {
+      if (editingTag) {
+        const updated = await updateTag(editingTag.id, { name: normalized, category: formCategory });
+        setTags((prev) => prev.map((t) => (t.id === editingTag.id ? updated : t)));
+        toast.success("Tag updated");
+      } else {
+        const created = await createTag({ name: normalized, category: formCategory });
+        setTags((prev) => [...prev, created]);
+        toast.success("Tag created");
+      }
+      setDialogOpen(false);
+    } catch (err) {
+      console.error("Failed to save tag:", err);
+      toast.error("Failed to save tag");
     }
-    setDialogOpen(false);
   };
 
-  const deleteTag = (id: string) => {
-    setTags((prev) => prev.filter((t) => t.id !== id));
-    toast.success("Tag deleted");
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteTag(id);
+      setTags((prev) => prev.filter((t) => t.id !== id));
+      toast.success("Tag deleted");
+    } catch (err) {
+      console.error("Failed to delete tag:", err);
+      toast.error("Failed to delete tag");
+    }
   };
 
   return (
@@ -149,45 +163,56 @@ export default function TagsAdminPage() {
 
       <ScrollArea className="flex-1">
         <div className="space-y-6 p-6">
-          {Object.entries(tagsByCategory)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([category, categoryTags]) => (
-              <div key={category}>
-                <h2 className="mb-3 text-sm font-semibold capitalize">{category}</h2>
-                <div className="flex flex-wrap gap-2">
-                  {categoryTags
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((tag) => (
-                      <div
-                        key={tag.id}
-                        className="group flex items-center gap-1"
-                      >
-                        <Badge
-                          className={`${categoryColors[category] || ""} text-xs`}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading tags...</span>
+            </div>
+          ) : Object.keys(tagsByCategory).length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-sm">No tags yet. Create one to get started.</p>
+            </div>
+          ) : (
+            Object.entries(tagsByCategory)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([category, categoryTags]) => (
+                <div key={category}>
+                  <h2 className="mb-3 text-sm font-semibold capitalize">{category}</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {categoryTags
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((tag) => (
+                        <div
+                          key={tag.id}
+                          className="group flex items-center gap-1"
                         >
-                          {tag.name}
-                        </Badge>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 opacity-0 group-hover:opacity-100"
-                          onClick={() => openEdit(tag)}
-                        >
-                          <Pencil className="h-2.5 w-2.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100"
-                          onClick={() => deleteTag(tag.id)}
-                        >
-                          <Trash2 className="h-2.5 w-2.5" />
-                        </Button>
-                      </div>
-                    ))}
+                          <Badge
+                            className={`${categoryColors[category] || ""} text-xs`}
+                          >
+                            {tag.name}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 opacity-0 group-hover:opacity-100"
+                            onClick={() => openEdit(tag)}
+                          >
+                            <Pencil className="h-2.5 w-2.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-destructive opacity-0 group-hover:opacity-100"
+                            onClick={() => handleDelete(tag.id)}
+                          >
+                            <Trash2 className="h-2.5 w-2.5" />
+                          </Button>
+                        </div>
+                      ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+          )}
         </div>
       </ScrollArea>
     </div>

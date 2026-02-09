@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,14 +31,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { mockProfiles } from "@/lib/mock-data";
+import { listProfiles, updateProfile } from "@/lib/api/profiles";
 import type { Profile } from "@/types";
 
 export default function UsersAdminPage() {
-  const [users, setUsers] = useState<Profile[]>(mockProfiles);
+  const [users, setUsers] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<Profile | null>(null);
   const [formDisplayName, setFormDisplayName] = useState("");
@@ -46,6 +47,16 @@ export default function UsersAdminPage() {
   const [formPassword, setFormPassword] = useState("");
   const [formTeam, setFormTeam] = useState("");
   const [formRole, setFormRole] = useState("editor");
+
+  useEffect(() => {
+    listProfiles()
+      .then(setUsers)
+      .catch((err) => {
+        console.error("Failed to load users:", err);
+        toast.error("Failed to load users");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const openNew = () => {
     setEditingUser(null);
@@ -67,35 +78,30 @@ export default function UsersAdminPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formDisplayName.trim()) return;
-    if (editingUser) {
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === editingUser.id
-            ? { ...u, display_name: formDisplayName, team: formTeam || null, role: formRole }
-            : u
-        )
-      );
-      toast.success("User updated");
-    } else {
-      if (!formEmail.trim() || !formPassword.trim()) return;
-      const newUser: Profile = {
-        id: `u${Date.now()}`,
-        display_name: formDisplayName,
-        team: formTeam || null,
-        role: formRole,
-        created_at: new Date().toISOString(),
-      };
-      setUsers((prev) => [...prev, newUser]);
-      toast.success("User created");
+    try {
+      if (editingUser) {
+        const updated = await updateProfile(editingUser.id, {
+          display_name: formDisplayName,
+          team: formTeam || null,
+          role: formRole,
+        });
+        setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? updated : u)));
+        toast.success("User updated");
+      } else {
+        // For creating new users, we'd need to call Supabase Auth admin API
+        // For now, show a message that user creation requires the admin API
+        if (!formEmail.trim() || !formPassword.trim()) return;
+        toast.info("User creation via admin API coming soon. Please use Supabase Dashboard.");
+        setDialogOpen(false);
+        return;
+      }
+      setDialogOpen(false);
+    } catch (err) {
+      console.error("Failed to save user:", err);
+      toast.error("Failed to save user");
     }
-    setDialogOpen(false);
-  };
-
-  const deleteUser = (id: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-    toast.success("User deleted");
   };
 
   return (
@@ -164,43 +170,47 @@ export default function UsersAdminPage() {
 
       <ScrollArea className="flex-1">
         <div className="p-6">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Team</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="w-24">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((user) => (
-                <TableRow key={user.id}>
-                  <TableCell className="font-medium">{user.display_name}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{user.team || "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={user.role === "admin" ? "default" : "secondary"} className="text-xs">
-                      {user.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {format(new Date(user.created_at), "MMM d, yyyy")}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(user)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => deleteUser(user.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading users...</span>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Team</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {users.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell className="font-medium">{user.display_name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{user.team || "\u2014"}</TableCell>
+                    <TableCell>
+                      <Badge variant={user.role === "admin" ? "default" : "secondary"} className="text-xs">
+                        {user.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {format(new Date(user.created_at), "MMM d, yyyy")}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(user)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </div>
       </ScrollArea>
     </div>

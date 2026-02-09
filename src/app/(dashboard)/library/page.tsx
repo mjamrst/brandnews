@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { ArticleGrid } from "@/components/articles/article-grid";
 import { ArticleListView } from "@/components/articles/article-list-view";
@@ -9,10 +9,13 @@ import { ArticleDetail } from "@/components/articles/article-detail";
 import { BuildNewsletterDialog } from "@/components/articles/build-newsletter-dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Archive, List, LayoutGrid, Newspaper, Tags } from "lucide-react";
+import { Archive, List, LayoutGrid, Newspaper, Tags, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { mockArticles, mockTags } from "@/lib/mock-data";
+import { listArticlesWithTags } from "@/lib/api/articles";
+import { listTags } from "@/lib/api/tags";
+import { bulkArchiveArticles } from "@/lib/api/articles";
 import type { ArticleWithTags, ArticleFilters } from "@/types";
+import type { Tag } from "@/lib/supabase/database.types";
 
 const defaultFilters: ArticleFilters = {
   search: "",
@@ -31,32 +34,65 @@ export default function LibraryPage() {
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [buildDialogOpen, setBuildDialogOpen] = useState(false);
 
-  // Derive available sources from articles
-  const availableSources = useMemo(() => {
-    const sources = new Set(mockArticles.map((a) => a.source_name).filter(Boolean));
-    return Array.from(sources).sort() as string[];
+  // Live data state
+  const [articles, setArticles] = useState<ArticleWithTags[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch tags once on mount
+  useEffect(() => {
+    listTags().then(setTags).catch((err) => {
+      console.error("Failed to load tags:", err);
+      toast.error("Failed to load tags");
+    });
   }, []);
 
-  // Filter and sort articles
+  // Fetch articles when filters change
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    listArticlesWithTags({
+      query: filters.search || undefined,
+      status: filters.status,
+      dateFrom: filters.dateFrom || undefined,
+      dateTo: filters.dateTo || undefined,
+      limit: 100,
+    })
+      .then(({ articles: fetched, count }) => {
+        if (cancelled) return;
+        // Map article_tags to flat tags array for component compatibility
+        const mapped: ArticleWithTags[] = fetched.map((a) => ({
+          ...a,
+          tags: a.article_tags?.map((at: { tags: { id: string; name: string; category: string | null } }) => at.tags).filter(Boolean) ?? [],
+        }));
+        setArticles(mapped);
+        setTotalCount(count);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to load articles:", err);
+        toast.error("Failed to load articles");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [filters.search, filters.status, filters.dateFrom, filters.dateTo]);
+
+  // Derive available sources from fetched articles
+  const availableSources = useMemo(() => {
+    const sources = new Set(articles.map((a) => a.source_name).filter(Boolean));
+    return Array.from(sources).sort() as string[];
+  }, [articles]);
+
+  // Client-side filter/sort for tag and source filters (already fetched)
   const filteredArticles = useMemo(() => {
-    let result = [...mockArticles];
+    let result = [...articles];
 
-    // Text search
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      result = result.filter(
-        (a) =>
-          (a.headline || "").toLowerCase().includes(q) ||
-          (a.title || "").toLowerCase().includes(q) ||
-          (a.summary || "").toLowerCase().includes(q) ||
-          (a.source_name || "").toLowerCase().includes(q)
-      );
-    }
-
-    // Status
-    result = result.filter((a) => a.status === filters.status);
-
-    // Tags
+    // Tags (client-side since we already have them)
     if (filters.tags.length > 0) {
       result = result.filter((a) =>
         a.tags?.some((t) => filters.tags.includes(t.id))
@@ -85,7 +121,7 @@ export default function LibraryPage() {
     }
 
     return result;
-  }, [filters]);
+  }, [articles, filters.tags, filters.sources, filters.sort]);
 
   const handleSelect = useCallback((id: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -121,9 +157,17 @@ export default function LibraryPage() {
     []
   );
 
-  const handleBulkArchive = () => {
-    toast.success(`${selectedIds.size} article(s) archived`);
-    setSelectedIds(new Set());
+  const handleBulkArchive = async () => {
+    const ids = Array.from(selectedIds);
+    try {
+      await bulkArchiveArticles(ids);
+      setArticles((prev) => prev.filter((a) => !selectedIds.has(a.id)));
+      toast.success(`${ids.length} article(s) archived`);
+      setSelectedIds(new Set());
+    } catch (err) {
+      console.error("Failed to archive:", err);
+      toast.error("Failed to archive articles");
+    }
   };
 
   return (
@@ -193,35 +237,45 @@ export default function LibraryPage() {
         <ArticleFiltersPanel
           filters={filters}
           onFiltersChange={setFilters}
-          tags={mockTags}
+          tags={tags}
           sources={availableSources}
         />
 
         {/* Article list / grid */}
         <ScrollArea className="flex-1">
           <div className="p-6">
-            <div className="mb-4 text-sm text-muted-foreground">
-              {filteredArticles.length} article{filteredArticles.length !== 1 ? "s" : ""}
-            </div>
-            {viewMode === "list" ? (
-              <ArticleListView
-                articles={filteredArticles}
-                selectedIds={selectedIds}
-                onSelect={handleSelect}
-                onSelectAll={handleSelectAll}
-                onAddToNewsletter={handleAddToNewsletter}
-                onTagClick={handleTagClick}
-                onArticleClick={setDetailArticle}
-              />
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading articles...</span>
+              </div>
             ) : (
-              <ArticleGrid
-                articles={filteredArticles}
-                selectedIds={selectedIds}
-                onSelect={handleSelect}
-                onAddToNewsletter={handleAddToNewsletter}
-                onTagClick={handleTagClick}
-                onArticleClick={setDetailArticle}
-              />
+              <>
+                <div className="mb-4 text-sm text-muted-foreground">
+                  {filteredArticles.length} article{filteredArticles.length !== 1 ? "s" : ""}
+                  {totalCount > filteredArticles.length && ` (of ${totalCount} total)`}
+                </div>
+                {viewMode === "list" ? (
+                  <ArticleListView
+                    articles={filteredArticles}
+                    selectedIds={selectedIds}
+                    onSelect={handleSelect}
+                    onSelectAll={handleSelectAll}
+                    onAddToNewsletter={handleAddToNewsletter}
+                    onTagClick={handleTagClick}
+                    onArticleClick={setDetailArticle}
+                  />
+                ) : (
+                  <ArticleGrid
+                    articles={filteredArticles}
+                    selectedIds={selectedIds}
+                    onSelect={handleSelect}
+                    onAddToNewsletter={handleAddToNewsletter}
+                    onTagClick={handleTagClick}
+                    onArticleClick={setDetailArticle}
+                  />
+                )}
+              </>
             )}
           </div>
         </ScrollArea>

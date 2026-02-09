@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,16 +25,23 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, X } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { mockBrandTemplates } from "@/lib/mock-data";
+import {
+  listBrandTemplates,
+  createBrandTemplate,
+  updateBrandTemplate,
+  deleteBrandTemplate,
+} from "@/lib/api/brand-templates";
 import { TEMPLATE_OPTIONS } from "@/lib/constants";
 import type { BrandTemplate, PartnerLogo } from "@/types";
+import type { Json } from "@/lib/supabase/database.types";
 
 const FONT_OPTIONS = ["Inter", "Georgia", "Roboto", "Merriweather", "Arial"];
 
 export default function BrandsAdminPage() {
-  const [brands, setBrands] = useState<BrandTemplate[]>(mockBrandTemplates);
+  const [brands, setBrands] = useState<BrandTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBrand, setEditingBrand] = useState<BrandTemplate | null>(null);
 
@@ -53,6 +60,16 @@ export default function BrandsAdminPage() {
   const [formBrandDescription, setFormBrandDescription] = useState("");
   const [formDefaultTemplate, setFormDefaultTemplate] = useState("the-rundown");
   const [formShowWhyItMatters, setFormShowWhyItMatters] = useState(false);
+
+  useEffect(() => {
+    listBrandTemplates()
+      .then((data) => setBrands(data as unknown as BrandTemplate[]))
+      .catch((err) => {
+        console.error("Failed to load brand templates:", err);
+        toast.error("Failed to load brand templates");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const resetForm = () => {
     setFormName("");
@@ -82,7 +99,7 @@ export default function BrandsAdminPage() {
     setFormName(brand.name);
     setFormLogoUrl(brand.logo_url || "");
     setFormHeaderImageUrl(brand.header_image_url || "");
-    setFormPartnerLogos([...brand.partner_logos]);
+    setFormPartnerLogos([...(brand.partner_logos || [])]);
     setFormPrimary(brand.primary_color);
     setFormSecondary(brand.secondary_color);
     setFormAccent(brand.accent_color);
@@ -96,13 +113,13 @@ export default function BrandsAdminPage() {
     setDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formName.trim()) return;
-    const brandData: Omit<BrandTemplate, "id" | "created_at"> = {
+    const brandData = {
       name: formName,
       logo_url: formLogoUrl || null,
       header_image_url: formHeaderImageUrl || null,
-      partner_logos: formPartnerLogos.filter((l) => l.url.trim()),
+      partner_logos: formPartnerLogos.filter((l) => l.url.trim()) as unknown as Json,
       primary_color: formPrimary,
       secondary_color: formSecondary,
       accent_color: formAccent,
@@ -115,26 +132,36 @@ export default function BrandsAdminPage() {
       show_why_it_matters: formShowWhyItMatters,
     };
 
-    if (editingBrand) {
-      setBrands((prev) =>
-        prev.map((b) =>
-          b.id === editingBrand.id ? { ...b, ...brandData } : b
-        )
-      );
-      toast.success("Brand template updated");
-    } else {
-      setBrands((prev) => [
-        ...prev,
-        { ...brandData, id: `b${Date.now()}`, created_at: new Date().toISOString() },
-      ]);
-      toast.success("Brand template created");
+    try {
+      if (editingBrand) {
+        const updated = await updateBrandTemplate(editingBrand.id, brandData);
+        setBrands((prev) =>
+          prev.map((b) =>
+            b.id === editingBrand.id ? (updated as unknown as BrandTemplate) : b
+          )
+        );
+        toast.success("Brand template updated");
+      } else {
+        const created = await createBrandTemplate(brandData);
+        setBrands((prev) => [...prev, created as unknown as BrandTemplate]);
+        toast.success("Brand template created");
+      }
+      setDialogOpen(false);
+    } catch (err) {
+      console.error("Failed to save brand template:", err);
+      toast.error("Failed to save brand template");
     }
-    setDialogOpen(false);
   };
 
-  const deleteBrand = (id: string) => {
-    setBrands((prev) => prev.filter((b) => b.id !== id));
-    toast.success("Brand template deleted");
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteBrandTemplate(id);
+      setBrands((prev) => prev.filter((b) => b.id !== id));
+      toast.success("Brand template deleted");
+    } catch (err) {
+      console.error("Failed to delete brand template:", err);
+      toast.error("Failed to delete brand template");
+    }
   };
 
   const addPartnerLogo = () => {
@@ -343,54 +370,67 @@ export default function BrandsAdminPage() {
       />
 
       <ScrollArea className="flex-1">
-        <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-3">
-          {brands.map((brand) => (
-            <Card key={brand.id}>
-              <CardContent className="p-4">
-                {brand.header_image_url && (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={brand.header_image_url}
-                    alt={`${brand.name} banner`}
-                    className="mb-3 h-16 w-full rounded object-cover"
-                  />
-                )}
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="font-semibold">{brand.name}</h3>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(brand)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => deleteBrand(brand.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="h-8 w-8 rounded" style={{ backgroundColor: brand.primary_color }} title="Primary" />
-                  <div className="h-8 w-8 rounded" style={{ backgroundColor: brand.secondary_color }} title="Secondary" />
-                  <div className="h-8 w-8 rounded border" style={{ backgroundColor: brand.accent_color }} title="Accent" />
-                </div>
-                {brand.subtitle && (
-                  <p className="mt-2 text-xs text-muted-foreground italic line-clamp-2">{brand.subtitle}</p>
-                )}
-                {brand.footer_text && !brand.subtitle && (
-                  <p className="mt-2 text-xs text-muted-foreground">{brand.footer_text}</p>
-                )}
-                <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span>{brand.heading_font}</span>
-                  <span>·</span>
-                  <span>{TEMPLATE_OPTIONS.find((t) => t.id === brand.default_template_id)?.name}</span>
-                  {brand.show_why_it_matters && (
-                    <>
+        <div className="p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading brand templates...</span>
+            </div>
+          ) : brands.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-sm">No brand templates yet. Create one to get started.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {brands.map((brand) => (
+                <Card key={brand.id}>
+                  <CardContent className="p-4">
+                    {brand.header_image_url && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={brand.header_image_url}
+                        alt={`${brand.name} banner`}
+                        className="mb-3 h-16 w-full rounded object-cover"
+                      />
+                    )}
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="font-semibold">{brand.name}</h3>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(brand)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(brand.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="h-8 w-8 rounded" style={{ backgroundColor: brand.primary_color }} title="Primary" />
+                      <div className="h-8 w-8 rounded" style={{ backgroundColor: brand.secondary_color }} title="Secondary" />
+                      <div className="h-8 w-8 rounded border" style={{ backgroundColor: brand.accent_color }} title="Accent" />
+                    </div>
+                    {brand.subtitle && (
+                      <p className="mt-2 text-xs text-muted-foreground italic line-clamp-2">{brand.subtitle}</p>
+                    )}
+                    {brand.footer_text && !brand.subtitle && (
+                      <p className="mt-2 text-xs text-muted-foreground">{brand.footer_text}</p>
+                    )}
+                    <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <span>{brand.heading_font}</span>
                       <span>·</span>
-                      <span>WIM</span>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                      <span>{TEMPLATE_OPTIONS.find((t) => t.id === brand.default_template_id)?.name}</span>
+                      {brand.show_why_it_matters && (
+                        <>
+                          <span>·</span>
+                          <span>WIM</span>
+                        </>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </ScrollArea>
     </div>

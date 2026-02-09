@@ -234,6 +234,63 @@ export interface Database {
           },
         ];
       };
+      brand_templates: {
+        Row: {
+          id: string;
+          name: string;
+          logo_url: string | null;
+          header_image_url: string | null;
+          partner_logos: Json;
+          primary_color: string;
+          secondary_color: string;
+          accent_color: string;
+          heading_font: string;
+          body_font: string;
+          subtitle: string | null;
+          footer_text: string | null;
+          brand_description: string | null;
+          default_template_id: string;
+          show_why_it_matters: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          logo_url?: string | null;
+          header_image_url?: string | null;
+          partner_logos?: Json;
+          primary_color?: string;
+          secondary_color?: string;
+          accent_color?: string;
+          heading_font?: string;
+          body_font?: string;
+          subtitle?: string | null;
+          footer_text?: string | null;
+          brand_description?: string | null;
+          default_template_id?: string;
+          show_why_it_matters?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          logo_url?: string | null;
+          header_image_url?: string | null;
+          partner_logos?: Json;
+          primary_color?: string;
+          secondary_color?: string;
+          accent_color?: string;
+          heading_font?: string;
+          body_font?: string;
+          subtitle?: string | null;
+          footer_text?: string | null;
+          brand_description?: string | null;
+          default_template_id?: string;
+          show_why_it_matters?: boolean;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       feed_sources: {
         Row: {
           id: string;
@@ -303,3 +360,7 @@ export type NewsletterArticleInsert = Database['the_brief']['Tables']['newslette
 export type FeedSource = Database['the_brief']['Tables']['feed_sources']['Row'];
 export type FeedSourceInsert = Database['the_brief']['Tables']['feed_sources']['Insert'];
 export type FeedSourceUpdate = Database['the_brief']['Tables']['feed_sources']['Update'];
+
+export type BrandTemplate = Database['the_brief']['Tables']['brand_templates']['Row'];
+export type BrandTemplateInsert = Database['the_brief']['Tables']['brand_templates']['Insert'];
+export type BrandTemplateUpdate = Database['the_brief']['Tables']['brand_templates']['Update'];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TEMPLATE_OPTIONS } from "@/lib/constants";
-import { mockBrandTemplates } from "@/lib/mock-data";
+import { listBrandTemplates } from "@/lib/api/brand-templates";
+import type { BrandTemplate } from "@/types";
 
 interface BuildNewsletterDialogProps {
   open: boolean;
@@ -38,6 +39,15 @@ export function BuildNewsletterDialog({
   const [title, setTitle] = useState("");
   const [templateId, setTemplateId] = useState<string>("the-rundown");
   const [brandTemplateId, setBrandTemplateId] = useState<string>("none");
+  const [brandTemplates, setBrandTemplates] = useState<BrandTemplate[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      listBrandTemplates()
+        .then((data) => setBrandTemplates(data as unknown as BrandTemplate[]))
+        .catch(console.error);
+    }
+  }, [open]);
 
   const handleSubmit = () => {
     if (!title.trim()) return;
@@ -77,7 +87,7 @@ export function BuildNewsletterDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No brand</SelectItem>
-                {mockBrandTemplates.map((b) => (
+                {brandTemplates.map((b) => (
                   <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                 ))}
               </SelectContent>
