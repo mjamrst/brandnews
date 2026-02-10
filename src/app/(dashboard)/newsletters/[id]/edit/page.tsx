@@ -468,7 +468,8 @@ export default function NewsletterEditPage() {
             </p>
           </div>
 
-          <ScrollArea className="flex-1">
+          {/* Staged articles — scrollable top half */}
+          <ScrollArea className="flex-1 min-h-0">
             <div className="p-3">
               <DndContext
                 sensors={sensors}
@@ -490,9 +491,11 @@ export default function NewsletterEditPage() {
                 </SortableContext>
               </DndContext>
             </div>
+          </ScrollArea>
 
-            {/* Add more articles */}
-            <div className="border-t p-3">
+          {/* Add articles — scrollable bottom half */}
+          <div className="flex flex-1 min-h-0 flex-col border-t">
+            <div className="p-3 pb-0">
               <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
                 Add Articles
               </h3>
@@ -505,8 +508,10 @@ export default function NewsletterEditPage() {
                   className="h-8 pl-7 text-xs"
                 />
               </div>
-              <div className="space-y-1">
-                {availableArticles.slice(0, 5).map((article) => (
+            </div>
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="space-y-1 px-3 pb-3">
+                {availableArticles.slice(0, 20).map((article) => (
                   <button
                     key={article.id}
                     onClick={() => addArticle(article)}
@@ -529,8 +534,8 @@ export default function NewsletterEditPage() {
                   </button>
                 ))}
               </div>
-            </div>
-          </ScrollArea>
+            </ScrollArea>
+          </div>
         </div>
 
         {/* Right: Preview */}
