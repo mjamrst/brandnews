@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, X, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import {
   listBrandTemplates,
@@ -70,6 +70,30 @@ export default function BrandsAdminPage() {
   const [formBrandDescription, setFormBrandDescription] = useState("");
   const [formDefaultTemplate, setFormDefaultTemplate] = useState("the-rundown");
   const [formShowWhyItMatters, setFormShowWhyItMatters] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const headerFileRef = useRef<HTMLInputElement>(null);
+
+  const handleHeaderImageUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("path", "header-banners");
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || "Upload failed");
+      }
+      const { url } = await res.json();
+      setFormHeaderImageUrl(url);
+      toast.success("Banner image uploaded");
+    } catch (err) {
+      console.error("Upload error:", err);
+      toast.error("Failed to upload image");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   useEffect(() => {
     listBrandTemplates()
@@ -257,12 +281,64 @@ export default function BrandsAdminPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Header Banner Image URL</Label>
+                    <Label>Header Banner Image</Label>
                     <p className="text-xs text-muted-foreground">Recommended: 1200 × 400px (3:1 ratio). PNG for graphics, JPEG for photos.</p>
-                    <Input value={formHeaderImageUrl} onChange={(e) => setFormHeaderImageUrl(e.target.value)} placeholder="https://example.com/banner.png" />
-                    {formHeaderImageUrl && (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img src={formHeaderImageUrl} alt="Banner preview" className="mt-1 h-16 w-full rounded object-cover border" />
+                    <input
+                      ref={headerFileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleHeaderImageUpload(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    {formHeaderImageUrl ? (
+                      <div className="relative group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={formHeaderImageUrl} alt="Banner preview" className="h-24 w-full rounded object-cover border" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 text-xs"
+                            disabled={uploading}
+                            onClick={() => headerFileRef.current?.click()}
+                          >
+                            Replace
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            className="h-7 text-xs"
+                            onClick={() => setFormHeaderImageUrl("")}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={uploading}
+                        onClick={() => headerFileRef.current?.click()}
+                        className="flex h-24 w-full items-center justify-center gap-2 rounded-md border-2 border-dashed border-muted-foreground/25 bg-muted/30 text-sm text-muted-foreground transition-colors hover:border-muted-foreground/50 hover:bg-muted/50 disabled:opacity-50"
+                      >
+                        {uploading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4" />
+                            Click to upload banner image
+                          </>
+                        )}
+                      </button>
                     )}
                   </div>
                   <div className="space-y-2">
