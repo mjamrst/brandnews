@@ -313,22 +313,31 @@ export default function NewsletterEditPage() {
   const [saving, setSaving] = useState(false);
 
   const handleSave = useCallback(async () => {
-    if (!newsletter || newsletterId === "new-draft") {
-      toast.error("No newsletter to save");
-      return;
-    }
     setSaving(true);
     try {
-      // Update newsletter metadata
-      await updateNewsletter(newsletter.id, {
-        title: titleOverride || newsletter.title,
-        template_id: templateOverride || newsletter.template_id,
-        updated_at: new Date().toISOString(),
-      });
+      let nlId = newsletter?.id;
+
+      if (!nlId || newsletterId === "new-draft") {
+        // Create the newsletter in the DB first (new-draft flow)
+        const created = await createNewsletter({
+          title: titleOverride || "Untitled Newsletter",
+          template_id: templateOverride || "the-rundown",
+          status: "draft",
+        });
+        nlId = created.id;
+        setNewsletter(created);
+      } else {
+        // Update existing newsletter metadata
+        await updateNewsletter(nlId, {
+          title: titleOverride || newsletter!.title,
+          template_id: templateOverride || newsletter!.template_id,
+          updated_at: new Date().toISOString(),
+        });
+      }
 
       // Replace all newsletter articles with current staged set
       await replaceNewsletterArticles(
-        newsletter.id,
+        nlId,
         stagedArticles.map((s, i) => ({
           article_id: s.article.id,
           position: i,
@@ -338,13 +347,18 @@ export default function NewsletterEditPage() {
       );
 
       toast.success("Newsletter saved");
+
+      // Redirect from new-draft to the real URL so future saves work
+      if (newsletterId === "new-draft") {
+        router.replace(`/newsletters/${nlId}/edit`);
+      }
     } catch (err) {
       console.error("Failed to save newsletter:", err);
       toast.error("Failed to save newsletter");
     } finally {
       setSaving(false);
     }
-  }, [newsletter, newsletterId, titleOverride, templateOverride, stagedArticles]);
+  }, [newsletter, newsletterId, titleOverride, templateOverride, stagedArticles, router]);
 
   const handlePublish = () => {
     toast.success("Newsletter published! Shareable link has been generated.");
