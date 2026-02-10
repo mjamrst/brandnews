@@ -38,7 +38,7 @@ import type { BrandTemplate, PartnerLogo } from "@/types";
 import type { Json } from "@/lib/supabase/database.types";
 
 const FONT_OPTIONS = ["Inter", "Georgia", "Roboto", "Merriweather", "Arial"];
-const LOGODEV_TOKEN = process.env.NEXT_PUBLIC_LOGODEV_TOKEN;
+const LOGODEV_TOKEN = process.env.NEXT_PUBLIC_LOGODEV_TOKEN || "pk_Z8BrsG6gRre_LysKqNlsSA";
 
 function cleanDomain(input: string): string {
   return input.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
@@ -226,10 +226,10 @@ export default function BrandsAdminPage() {
                         {(formLogoDomain || formLogoUrl) ? (
                           /* eslint-disable-next-line @next/next/no-img-element */
                           <img
+                            key={formLogoDomain || formLogoUrl}
                             src={formLogoDomain ? logoDevUrl(formLogoDomain) : formLogoUrl}
                             alt="Logo preview"
                             className="h-10 w-10 object-contain"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                         ) : (
                           <span className="text-[10px] text-muted-foreground">No logo</span>
