@@ -71,23 +71,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initialize();
 
-    // Only handle subsequent auth changes (sign-in, sign-out, token refresh)
+    // Only handle subsequent auth changes (sign-in, sign-out, token refresh).
+    // IMPORTANT: callback must NOT be async — Supabase awaits async callbacks
+    // inside signInWithPassword, which would block login until profile fetch completes.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         if (!mounted || event === "INITIAL_SESSION") return;
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (currentUser) {
-          try {
-            const { data } = await supabase
+          Promise.resolve(
+            supabase
               .from("profiles")
               .select("*")
               .eq("id", currentUser.id)
-              .single();
-            if (mounted) setProfile(data);
-          } catch {
-            // Profile fetch failed
-          }
+              .single()
+          )
+            .then(({ data }) => {
+              if (mounted) setProfile(data);
+            })
+            .catch(() => {});
         } else {
           setProfile(null);
         }
