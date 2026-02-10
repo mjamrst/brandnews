@@ -104,3 +104,37 @@ export async function bulkAddArticlesToNewsletter(
     .upsert(rows, { onConflict: 'newsletter_id,article_id' });
   if (error) throw error;
 }
+
+export async function replaceNewsletterArticles(
+  newsletterId: string,
+  articles: {
+    article_id: string;
+    position: number;
+    custom_headline?: string | null;
+    custom_summary?: string | null;
+  }[]
+): Promise<void> {
+  const supabase = createClient();
+
+  // Delete all existing articles for this newsletter
+  const { error: deleteError } = await supabase
+    .from('newsletter_articles')
+    .delete()
+    .eq('newsletter_id', newsletterId);
+  if (deleteError) throw deleteError;
+
+  if (articles.length === 0) return;
+
+  // Insert the new set
+  const rows: NewsletterArticleInsert[] = articles.map((a) => ({
+    newsletter_id: newsletterId,
+    article_id: a.article_id,
+    position: a.position,
+    custom_headline: a.custom_headline || null,
+    custom_summary: a.custom_summary || null,
+  }));
+  const { error: insertError } = await supabase
+    .from('newsletter_articles')
+    .insert(rows);
+  if (insertError) throw insertError;
+}

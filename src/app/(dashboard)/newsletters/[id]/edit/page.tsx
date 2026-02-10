@@ -34,9 +34,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Eye, Globe, Mail, Send, Search, Image, Loader2 } from "lucide-react";
+import { Eye, Globe, Mail, Send, Save, Search, Image, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { getNewsletter, createNewsletter, getNewsletterWithArticles } from "@/lib/api/newsletters";
+import { getNewsletter, createNewsletter, getNewsletterWithArticles, updateNewsletter } from "@/lib/api/newsletters";
+import { replaceNewsletterArticles } from "@/lib/api/newsletter-articles";
 import { listArticlesWithTags } from "@/lib/api/articles";
 import { listBrandTemplates } from "@/lib/api/brand-templates";
 import { applyBrandConfig } from "@/lib/templates/brand";
@@ -309,6 +310,42 @@ export default function NewsletterEditPage() {
     []
   );
 
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = useCallback(async () => {
+    if (!newsletter || newsletterId === "new-draft") {
+      toast.error("No newsletter to save");
+      return;
+    }
+    setSaving(true);
+    try {
+      // Update newsletter metadata
+      await updateNewsletter(newsletter.id, {
+        title: titleOverride || newsletter.title,
+        template_id: templateOverride || newsletter.template_id,
+        updated_at: new Date().toISOString(),
+      });
+
+      // Replace all newsletter articles with current staged set
+      await replaceNewsletterArticles(
+        newsletter.id,
+        stagedArticles.map((s, i) => ({
+          article_id: s.article.id,
+          position: i,
+          custom_headline: s.customHeadline || null,
+          custom_summary: s.customSummary || null,
+        }))
+      );
+
+      toast.success("Newsletter saved");
+    } catch (err) {
+      console.error("Failed to save newsletter:", err);
+      toast.error("Failed to save newsletter");
+    } finally {
+      setSaving(false);
+    }
+  }, [newsletter, newsletterId, titleOverride, templateOverride, stagedArticles]);
+
   const handlePublish = () => {
     toast.success("Newsletter published! Shareable link has been generated.");
   };
@@ -359,6 +396,14 @@ export default function NewsletterEditPage() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+            <Button size="sm" variant="outline" onClick={handleSave} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-1 h-4 w-4" />
+              )}
+              {saving ? "Saving..." : "Save"}
+            </Button>
             <Button size="sm" onClick={handlePublish}>
               <Send className="mr-1 h-4 w-4" />
               Publish
@@ -462,7 +507,7 @@ export default function NewsletterEditPage() {
                       />
                     )}
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">
+                      <p className="line-clamp-2 font-medium">
                         {article.headline || article.title}
                       </p>
                       <p className="text-muted-foreground">{article.source_name}</p>

@@ -221,7 +221,7 @@ function SortableArticleItem({
               />
             )}
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium leading-snug truncate">
+              <p className="text-xs font-medium leading-snug line-clamp-3">
                 {staged.customHeadline || staged.article.headline || staged.article.title}
               </p>
               <p className="text-[10px] text-muted-foreground">
