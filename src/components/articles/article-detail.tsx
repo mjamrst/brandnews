@@ -46,12 +46,14 @@ export function ArticleDetail({ article, open, onClose, onSave }: ArticleDetailP
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle className="text-left">Article Details</SheetTitle>
-        </SheetHeader>
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto p-0">
+        <div className="px-8 pt-6 pb-2">
+          <SheetHeader>
+            <SheetTitle className="text-left">Article Details</SheetTitle>
+          </SheetHeader>
+        </div>
 
-        <div className="mt-6 space-y-6">
+        <div className="px-8 pb-8 space-y-6">
           {/* Thumbnail */}
           {article.thumbnail_url && (
             <div className="overflow-hidden rounded-lg">
@@ -121,7 +123,7 @@ export function ArticleDetail({ article, open, onClose, onSave }: ArticleDetailP
               <Label className="text-xs font-medium uppercase text-muted-foreground">
                 AI Summary
               </Label>
-              <p className="mt-2 text-sm leading-relaxed">{article.summary}</p>
+              <p className="mt-2 text-sm leading-7">{article.summary}</p>
             </div>
           )}
 
