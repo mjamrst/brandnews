@@ -38,6 +38,11 @@ import type { BrandTemplate, PartnerLogo } from "@/types";
 import type { Json } from "@/lib/supabase/database.types";
 
 const FONT_OPTIONS = ["Inter", "Georgia", "Roboto", "Merriweather", "Arial"];
+const LOGODEV_TOKEN = process.env.NEXT_PUBLIC_LOGODEV_TOKEN;
+
+function logoDevUrl(domain: string): string {
+  return `https://img.logo.dev/${domain}?token=${LOGODEV_TOKEN}&size=120&format=png`;
+}
 
 export default function BrandsAdminPage() {
   const [brands, setBrands] = useState<BrandTemplate[]>([]);
@@ -48,6 +53,7 @@ export default function BrandsAdminPage() {
   // Form state
   const [formName, setFormName] = useState("");
   const [formLogoUrl, setFormLogoUrl] = useState("");
+  const [formLogoDomain, setFormLogoDomain] = useState("");
   const [formHeaderImageUrl, setFormHeaderImageUrl] = useState("");
   const [formPartnerLogos, setFormPartnerLogos] = useState<PartnerLogo[]>([]);
   const [formPrimary, setFormPrimary] = useState("#000000");
@@ -74,6 +80,7 @@ export default function BrandsAdminPage() {
   const resetForm = () => {
     setFormName("");
     setFormLogoUrl("");
+    setFormLogoDomain("");
     setFormHeaderImageUrl("");
     setFormPartnerLogos([]);
     setFormPrimary("#000000");
@@ -98,6 +105,9 @@ export default function BrandsAdminPage() {
     setEditingBrand(brand);
     setFormName(brand.name);
     setFormLogoUrl(brand.logo_url || "");
+    // Extract domain if the logo URL is from logo.dev
+    const logoDevMatch = brand.logo_url?.match(/img\.logo\.dev\/([^?]+)/);
+    setFormLogoDomain(logoDevMatch ? logoDevMatch[1] : "");
     setFormHeaderImageUrl(brand.header_image_url || "");
     setFormPartnerLogos([...(brand.partner_logos || [])]);
     setFormPrimary(brand.primary_color);
@@ -206,8 +216,40 @@ export default function BrandsAdminPage() {
                     <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g., Google" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Logo URL</Label>
-                    <Input value={formLogoUrl} onChange={(e) => setFormLogoUrl(e.target.value)} placeholder="https://example.com/logo.png" />
+                    <Label>Brand Logo</Label>
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 shrink-0 rounded-lg border bg-white flex items-center justify-center overflow-hidden">
+                        {(formLogoDomain || formLogoUrl) ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            src={formLogoDomain ? logoDevUrl(formLogoDomain) : formLogoUrl}
+                            alt="Logo preview"
+                            className="h-10 w-10 object-contain"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">No logo</span>
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-1.5">
+                        <Input
+                          value={formLogoDomain}
+                          onChange={(e) => {
+                            const domain = e.target.value.trim().toLowerCase();
+                            setFormLogoDomain(domain);
+                            if (domain) {
+                              setFormLogoUrl(logoDevUrl(domain));
+                            } else {
+                              setFormLogoUrl("");
+                            }
+                          }}
+                          placeholder="google.com"
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          Enter brand domain to auto-fetch logo via logo.dev
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Header Banner Image URL</Label>
@@ -394,7 +436,13 @@ export default function BrandsAdminPage() {
                       />
                     )}
                     <div className="mb-3 flex items-center justify-between">
-                      <h3 className="font-semibold">{brand.name}</h3>
+                      <div className="flex items-center gap-2">
+                        {brand.logo_url && (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={brand.logo_url} alt="" className="h-6 w-6 object-contain" />
+                        )}
+                        <h3 className="font-semibold">{brand.name}</h3>
+                      </div>
                       <div className="flex gap-1">
                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(brand)}>
                           <Pencil className="h-3.5 w-3.5" />
