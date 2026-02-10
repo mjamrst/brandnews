@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { format } from "date-fns";
 import {
   Table,
@@ -33,20 +34,41 @@ function SkeletonRows() {
       {Array.from({ length: 6 }).map((_, i) => (
         <TableRow key={i}>
           <TableCell><Skeleton className="h-4 w-4" /></TableCell>
-          <TableCell><Skeleton className="h-10 w-10 rounded" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-20" /></TableCell>
-          <TableCell className="hidden md:table-cell">
-            <div className="flex gap-1">
-              <Skeleton className="h-5 w-12 rounded-full" />
-              <Skeleton className="h-5 w-14 rounded-full" />
+          <TableCell>
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-10 w-14 shrink-0 rounded" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-3 w-32" />
+              </div>
             </div>
           </TableCell>
           <TableCell><Skeleton className="h-7 w-7" /></TableCell>
         </TableRow>
       ))}
     </>
+  );
+}
+
+function ArticleImage({ src, alt }: { src: string | null; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div className="h-10 w-14 shrink-0 rounded bg-muted flex items-center justify-center text-muted-foreground text-[8px]">
+        No img
+      </div>
+    );
+  }
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={src}
+      alt={alt}
+      className="h-10 w-14 shrink-0 rounded object-cover"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -86,11 +108,7 @@ export function ArticleListView({
               />
             )}
           </TableHead>
-          <TableHead className="w-14" />
-          <TableHead>Headline</TableHead>
-          <TableHead className="w-32">Source</TableHead>
-          <TableHead className="hidden w-28 md:table-cell">Date</TableHead>
-          <TableHead className="hidden w-48 md:table-cell">Tags</TableHead>
+          <TableHead>Article</TableHead>
           <TableHead className="w-10" />
         </TableRow>
       </TableHeader>
@@ -102,10 +120,8 @@ export function ArticleListView({
             const isSelected = selectedIds.has(article.id);
             const displayDate = article.published_at
               ? format(new Date(article.published_at), "MMM d, yyyy")
-              : "—";
+              : null;
             const tags = article.tags || [];
-            const visibleTags = tags.slice(0, 3);
-            const overflowCount = tags.length - 3;
 
             return (
               <TableRow
@@ -114,7 +130,7 @@ export function ArticleListView({
                 className="cursor-pointer"
                 onClick={() => onArticleClick?.(article)}
               >
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                <TableCell className="align-top pt-4" onClick={(e) => e.stopPropagation()}>
                   {onSelect && (
                     <Checkbox
                       checked={isSelected}
@@ -123,48 +139,45 @@ export function ArticleListView({
                   )}
                 </TableCell>
                 <TableCell>
-                  {article.thumbnail_url ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
+                  <div className="flex items-start gap-3 py-1">
+                    <ArticleImage
                       src={article.thumbnail_url}
-                      alt=""
-                      className="h-10 w-10 rounded object-cover"
+                      alt={article.headline || article.title}
                     />
-                  ) : (
-                    <div className="h-10 w-10 rounded bg-muted" />
-                  )}
-                </TableCell>
-                <TableCell>
-                  <span className="text-sm font-medium line-clamp-1">
-                    {article.headline || article.title}
-                  </span>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {article.source_name || "—"}
-                </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                  {displayDate}
-                </TableCell>
-                <TableCell className="hidden md:table-cell" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex flex-wrap gap-1">
-                    {visibleTags.map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant="secondary"
-                        className="cursor-pointer text-[10px] hover:bg-secondary/80"
-                        onClick={() => onTagClick?.(tag.id)}
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
-                    {overflowCount > 0 && (
-                      <Badge variant="outline" className="text-[10px]">
-                        +{overflowCount}
-                      </Badge>
-                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium leading-snug line-clamp-2">
+                        {article.headline || article.title}
+                      </p>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{article.source_name || "Unknown"}</span>
+                        {displayDate && (
+                          <>
+                            <span className="text-muted-foreground/40">·</span>
+                            <span>{displayDate}</span>
+                          </>
+                        )}
+                      </div>
+                      {tags.length > 0 && (
+                        <div
+                          className="mt-1.5 flex flex-wrap gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {tags.map((tag) => (
+                            <Badge
+                              key={tag.id}
+                              variant="secondary"
+                              className="cursor-pointer text-[10px] px-1.5 py-0 hover:bg-secondary/80"
+                              onClick={() => onTagClick?.(tag.id)}
+                            >
+                              {tag.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
+                <TableCell className="align-top pt-4" onClick={(e) => e.stopPropagation()}>
                   {onAddToNewsletter && (
                     <Button
                       variant="ghost"
