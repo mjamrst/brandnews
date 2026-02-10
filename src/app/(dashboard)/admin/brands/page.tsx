@@ -444,7 +444,12 @@ export default function BrandsAdminPage() {
                       <div className="flex items-center gap-2">
                         {brand.logo_url && (
                           /* eslint-disable-next-line @next/next/no-img-element */
-                          <img src={brand.logo_url} alt="" className="h-6 w-6 object-contain" />
+                          <img
+                            src={brand.logo_url}
+                            alt=""
+                            className="h-6 w-6 object-contain"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
                         )}
                         <h3 className="font-semibold">{brand.name}</h3>
                       </div>
