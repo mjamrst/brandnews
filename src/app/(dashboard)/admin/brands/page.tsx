@@ -40,8 +40,12 @@ import type { Json } from "@/lib/supabase/database.types";
 const FONT_OPTIONS = ["Inter", "Georgia", "Roboto", "Merriweather", "Arial"];
 const LOGODEV_TOKEN = process.env.NEXT_PUBLIC_LOGODEV_TOKEN;
 
+function cleanDomain(input: string): string {
+  return input.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+}
+
 function logoDevUrl(domain: string): string {
-  return `https://img.logo.dev/${domain}?token=${LOGODEV_TOKEN}&size=120&format=png`;
+  return `https://img.logo.dev/${cleanDomain(domain)}?token=${LOGODEV_TOKEN}&size=120&format=png`;
 }
 
 export default function BrandsAdminPage() {
@@ -235,7 +239,8 @@ export default function BrandsAdminPage() {
                         <Input
                           value={formLogoDomain}
                           onChange={(e) => {
-                            const domain = e.target.value.trim().toLowerCase();
+                            const raw = e.target.value.trim().toLowerCase();
+                            const domain = cleanDomain(raw);
                             setFormLogoDomain(domain);
                             if (domain) {
                               setFormLogoUrl(logoDevUrl(domain));
