@@ -25,23 +25,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Single sequential init — no race conditions
+    // Race a promise against a timeout to prevent indefinite hangs
+    function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+      return Promise.race([
+        Promise.resolve(promise),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Auth timeout")), ms)
+        ),
+      ]);
+    }
+
     async function initialize() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          5000
+        );
         if (!mounted) return;
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (currentUser) {
-          const { data } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", currentUser.id)
-            .single();
-          if (mounted) setProfile(data);
+          try {
+            const { data } = await withTimeout(
+              supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", currentUser.id)
+                .single(),
+              5000
+            );
+            if (mounted) setProfile(data);
+          } catch {
+            // Profile fetch failed — proceed without profile
+          }
         }
       } catch {
-        // auth check failed
+        // getSession() failed or timed out — clear stale state
+        if (mounted) {
+          setUser(null);
+          setProfile(null);
+        }
       }
       if (mounted) setLoading(false);
     }
@@ -55,12 +78,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         if (currentUser) {
-          const { data } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", currentUser.id)
-            .single();
-          if (mounted) setProfile(data);
+          try {
+            const { data } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", currentUser.id)
+              .single();
+            if (mounted) setProfile(data);
+          } catch {
+            // Profile fetch failed
+          }
         } else {
           setProfile(null);
         }
