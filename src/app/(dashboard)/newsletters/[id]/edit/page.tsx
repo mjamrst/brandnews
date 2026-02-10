@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Eye, Globe, Mail, Send, Save, Search, Image, Loader2 } from "lucide-react";
+import { Eye, Globe, Mail, Send, Save, Search, Image, Loader2, Check, Copy, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { getNewsletter, createNewsletter, getNewsletterWithArticles, updateNewsletter } from "@/lib/api/newsletters";
 import { replaceNewsletterArticles } from "@/lib/api/newsletter-articles";
@@ -311,58 +311,86 @@ export default function NewsletterEditPage() {
   );
 
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+
+  // Save and return the newsletter ID (shared by save + publish)
+  const saveNewsletter = useCallback(async (): Promise<string> => {
+    let nlId = newsletter?.id;
+
+    if (!nlId || newsletterId === "new-draft") {
+      const created = await createNewsletter({
+        title: titleOverride || "Untitled Newsletter",
+        template_id: templateOverride || "the-rundown",
+        status: "draft",
+      });
+      nlId = created.id;
+      setNewsletter(created);
+    } else {
+      await updateNewsletter(nlId, {
+        title: titleOverride || newsletter!.title,
+        template_id: templateOverride || newsletter!.template_id,
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    await replaceNewsletterArticles(
+      nlId,
+      stagedArticles.map((s, i) => ({
+        article_id: s.article.id,
+        position: i,
+        custom_headline: s.customHeadline || null,
+        custom_summary: s.customSummary || null,
+      }))
+    );
+
+    if (newsletterId === "new-draft") {
+      router.replace(`/newsletters/${nlId}/edit`);
+    }
+
+    return nlId;
+  }, [newsletter, newsletterId, titleOverride, templateOverride, stagedArticles, router]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      let nlId = newsletter?.id;
-
-      if (!nlId || newsletterId === "new-draft") {
-        // Create the newsletter in the DB first (new-draft flow)
-        const created = await createNewsletter({
-          title: titleOverride || "Untitled Newsletter",
-          template_id: templateOverride || "the-rundown",
-          status: "draft",
-        });
-        nlId = created.id;
-        setNewsletter(created);
-      } else {
-        // Update existing newsletter metadata
-        await updateNewsletter(nlId, {
-          title: titleOverride || newsletter!.title,
-          template_id: templateOverride || newsletter!.template_id,
-          updated_at: new Date().toISOString(),
-        });
-      }
-
-      // Replace all newsletter articles with current staged set
-      await replaceNewsletterArticles(
-        nlId,
-        stagedArticles.map((s, i) => ({
-          article_id: s.article.id,
-          position: i,
-          custom_headline: s.customHeadline || null,
-          custom_summary: s.customSummary || null,
-        }))
-      );
-
+      await saveNewsletter();
       toast.success("Newsletter saved");
-
-      // Redirect from new-draft to the real URL so future saves work
-      if (newsletterId === "new-draft") {
-        router.replace(`/newsletters/${nlId}/edit`);
-      }
     } catch (err) {
       console.error("Failed to save newsletter:", err);
       toast.error("Failed to save newsletter");
     } finally {
       setSaving(false);
     }
-  }, [newsletter, newsletterId, titleOverride, templateOverride, stagedArticles, router]);
+  }, [saveNewsletter]);
 
-  const handlePublish = () => {
-    toast.success("Newsletter published! Shareable link has been generated.");
-  };
+  const handlePublish = useCallback(async () => {
+    if (stagedArticles.length === 0) {
+      toast.error("Add at least one article before publishing");
+      return;
+    }
+    setPublishing(true);
+    try {
+      // Save first to persist any unsaved changes
+      const nlId = await saveNewsletter();
+
+      const res = await fetch(`/api/newsletters/${nlId}/publish`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || "Publish failed");
+      }
+      const { url } = await res.json();
+      const fullUrl = url.startsWith("http") ? url : `${window.location.origin}${url}`;
+      setPublishedUrl(fullUrl);
+      setNewsletter((prev) => prev ? { ...prev, status: "published", published_url: url } : prev);
+      toast.success("Newsletter published!");
+    } catch (err) {
+      console.error("Failed to publish:", err);
+      toast.error(err instanceof Error ? err.message : "Failed to publish newsletter");
+    } finally {
+      setPublishing(false);
+    }
+  }, [stagedArticles.length, saveNewsletter]);
 
   // Available articles for adding (not already staged)
   const stagedIds = new Set(stagedArticles.map((s) => s.article.id));
@@ -418,10 +446,36 @@ export default function NewsletterEditPage() {
               )}
               {saving ? "Saving..." : "Save"}
             </Button>
-            <Button size="sm" onClick={handlePublish}>
-              <Send className="mr-1 h-4 w-4" />
-              Publish
-            </Button>
+            {publishedUrl ? (
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(publishedUrl);
+                    toast.success("Link copied to clipboard");
+                  }}
+                >
+                  <Copy className="mr-1 h-4 w-4" />
+                  Copy Link
+                </Button>
+                <Button size="sm" variant="outline" asChild>
+                  <a href={publishedUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-1 h-4 w-4" />
+                    View
+                  </a>
+                </Button>
+                <Button size="sm" onClick={handlePublish} disabled={publishing}>
+                  {publishing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                  Republish
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" onClick={handlePublish} disabled={publishing}>
+                {publishing ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                {publishing ? "Publishing..." : "Publish"}
+              </Button>
+            )}
           </div>
         }
       />
