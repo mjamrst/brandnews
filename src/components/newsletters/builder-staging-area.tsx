@@ -15,6 +15,7 @@ export interface StagedArticle {
   customHeadline: string;
   customSummary: string;
   whyItMatters: string;
+  customImageUrl?: string;
   position: number;
 }
 

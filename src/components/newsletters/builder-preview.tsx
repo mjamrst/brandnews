@@ -1,6 +1,9 @@
 "use client";
 
+import { useState, useRef, useEffect, type CSSProperties, type ReactNode } from "react";
 import { format } from "date-fns";
+import { Camera, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ArticleWithTags } from "@/types";
 import type { BrandConfig } from "@/lib/templates/types";
 
@@ -9,6 +12,7 @@ export interface StagedArticle {
   customHeadline: string;
   customSummary: string;
   whyItMatters: string;
+  customImageUrl?: string;
   position: number;
 }
 
@@ -18,6 +22,7 @@ interface BuilderPreviewProps {
   previewMode: "web" | "email";
   brandConfig?: BrandConfig | null;
   brandName?: string;
+  onUpdateOverride?: (articleId: string, field: "customHeadline" | "customSummary" | "whyItMatters" | "customImageUrl", value: string) => void;
 }
 
 function getHeadline(staged: StagedArticle): string {
@@ -28,12 +33,184 @@ function getSummary(staged: StagedArticle): string {
   return staged.customSummary || staged.article.summary || "";
 }
 
+function getImageUrl(staged: StagedArticle): string | null {
+  return staged.customImageUrl || staged.article.thumbnail_url || null;
+}
+
+// ─── Inline Editable Components ──────────────────────────────────────
+
+interface EditableTextProps {
+  value: string;
+  onUpdate: (value: string) => void;
+  className?: string;
+  style?: CSSProperties;
+  as?: "h2" | "h3" | "p" | "span";
+  multiline?: boolean;
+  children?: ReactNode;
+}
+
+function EditableText({ value, onUpdate, className = "", style, as: Tag = "p", multiline }: EditableTextProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  // Sync draft when value changes externally
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== value) {
+      onUpdate(trimmed);
+    } else {
+      setDraft(value);
+    }
+  };
+
+  if (editing) {
+    return (
+      <textarea
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+          if (e.key === "Enter" && !multiline) {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        className={`${className} w-full resize-none rounded border border-primary/40 bg-primary/5 px-1 py-0.5 outline-none ring-1 ring-primary/20`}
+        style={style}
+        rows={multiline ? 4 : 2}
+      />
+    );
+  }
+
+  return (
+    <Tag
+      onClick={() => setEditing(true)}
+      className={`${className} cursor-text rounded px-0.5 transition-colors hover:bg-primary/5 hover:outline hover:outline-1 hover:outline-primary/20`}
+      style={style}
+      title="Click to edit"
+    >
+      {value}
+    </Tag>
+  );
+}
+
+interface EditableImageProps {
+  src: string | null;
+  onUpdate: (url: string) => void;
+  className?: string;
+  style?: CSSProperties;
+}
+
+function EditableImage({ src, onUpdate, className = "", style }: EditableImageProps) {
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("path", "article-images");
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || "Upload failed");
+      }
+      const { url } = await res.json();
+      onUpdate(url);
+      toast.success("Image replaced");
+    } catch (err) {
+      console.error("Image upload error:", err);
+      toast.error("Failed to upload image");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="group relative">
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleUpload(file);
+          e.target.value = "";
+        }}
+      />
+      {src ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="" className={className} style={style} />
+          <div
+            onClick={() => fileRef.current?.click()}
+            className="absolute inset-0 flex cursor-pointer items-center justify-center rounded bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
+          >
+            {uploading ? (
+              <div className="flex items-center gap-2 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Uploading...
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 rounded-md bg-white/90 px-3 py-1.5 text-xs font-medium">
+                <Camera className="h-3.5 w-3.5" />
+                Replace Image
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div
+          onClick={() => fileRef.current?.click()}
+          className={`flex cursor-pointer items-center justify-center gap-1.5 border-2 border-dashed border-muted-foreground/25 bg-muted/30 text-xs text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/50 ${className}`}
+          style={{ ...style, minHeight: 80 }}
+        >
+          {uploading ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Uploading...
+            </>
+          ) : (
+            <>
+              <Camera className="h-3.5 w-3.5" />
+              Add Image
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── BuilderPreview ──────────────────────────────────────────────────
+
 export function BuilderPreview({
   stagedArticles,
   templateId,
   previewMode,
   brandConfig,
   brandName,
+  onUpdateOverride,
 }: BuilderPreviewProps) {
   if (stagedArticles.length === 0) {
     return (
@@ -50,6 +227,7 @@ export function BuilderPreview({
     isEmail: previewMode === "email",
     brandConfig: brandConfig || null,
     brandName: brandName || "",
+    onUpdateOverride,
   };
 
   switch (templateId) {
@@ -64,11 +242,14 @@ export function BuilderPreview({
   }
 }
 
+// ─── Shared Sub-Components ───────────────────────────────────────────
+
 interface TemplatePreviewProps {
   articles: StagedArticle[];
   isEmail: boolean;
   brandConfig: BrandConfig | null;
   brandName: string;
+  onUpdateOverride?: (articleId: string, field: "customHeadline" | "customSummary" | "whyItMatters" | "customImageUrl", value: string) => void;
 }
 
 function PartnerLogosBar({ brandConfig }: { brandConfig: BrandConfig | null }) {
@@ -144,7 +325,9 @@ function ArticleLinkBlock({ url, brandConfig }: { url: string; brandConfig: Bran
   );
 }
 
-function RundownPreview({ articles, isEmail, brandConfig, brandName }: TemplatePreviewProps) {
+// ─── Template Previews ───────────────────────────────────────────────
+
+function RundownPreview({ articles, isEmail, brandConfig, brandName, onUpdateOverride }: TemplatePreviewProps) {
   const [hero, ...rest] = articles;
   const bodyFont = brandConfig?.body_font || "Inter";
   const headingFont = brandConfig?.heading_font || "Inter";
@@ -160,18 +343,26 @@ function RundownPreview({ articles, isEmail, brandConfig, brandName }: TemplateP
       {/* Hero article */}
       {hero && (
         <div className="p-6 border-b">
-          {hero.article.thumbnail_url && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={hero.article.thumbnail_url}
-              alt=""
-              className="mb-4 w-full rounded-lg object-cover"
-              style={{ maxHeight: 300 }}
-            />
-          )}
-          <h2 className="text-xl font-bold" style={{ fontFamily: headingFont }}>{getHeadline(hero)}</h2>
+          <EditableImage
+            src={getImageUrl(hero)}
+            onUpdate={(url) => onUpdateOverride?.(hero.article.id, "customImageUrl", url)}
+            className="mb-4 w-full rounded-lg object-cover"
+            style={{ maxHeight: 300 }}
+          />
+          <EditableText
+            value={getHeadline(hero)}
+            onUpdate={(v) => onUpdateOverride?.(hero.article.id, "customHeadline", v)}
+            className="text-xl font-bold"
+            style={{ fontFamily: headingFont }}
+            as="h2"
+          />
           <p className="mt-1 text-xs text-muted-foreground">{hero.article.source_name}</p>
-          <p className="mt-2 text-sm leading-relaxed">{getSummary(hero)}</p>
+          <EditableText
+            value={getSummary(hero)}
+            onUpdate={(v) => onUpdateOverride?.(hero.article.id, "customSummary", v)}
+            className="mt-2 text-sm leading-relaxed"
+            multiline
+          />
           <WhyItMattersBlock staged={hero} brandConfig={brandConfig} brandName={brandName} />
           <ArticleLinkBlock url={hero.article.url} brandConfig={brandConfig} />
         </div>
@@ -181,24 +372,28 @@ function RundownPreview({ articles, isEmail, brandConfig, brandName }: TemplateP
       <div className={`px-6 py-4 grid gap-4 ${isEmail ? "grid-cols-1" : "grid-cols-1"}`}>
         {rest.map((staged) => (
           <div key={staged.article.id} className="flex gap-3 py-3 border-b last:border-b-0">
-            {staged.article.thumbnail_url && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={staged.article.thumbnail_url}
-                alt=""
-                className="h-20 w-28 rounded object-cover shrink-0"
+            <EditableImage
+              src={getImageUrl(staged)}
+              onUpdate={(url) => onUpdateOverride?.(staged.article.id, "customImageUrl", url)}
+              className="h-20 w-28 rounded object-cover shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <EditableText
+                value={getHeadline(staged)}
+                onUpdate={(v) => onUpdateOverride?.(staged.article.id, "customHeadline", v)}
+                className="text-sm font-semibold leading-snug"
+                style={{ fontFamily: headingFont, color: accentColor }}
+                as="h3"
               />
-            )}
-            <div>
-              <h3 className="text-sm font-semibold leading-snug" style={{ fontFamily: headingFont, color: accentColor }}>
-                {getHeadline(staged)}
-              </h3>
               <p className="mt-0.5 text-[10px] text-muted-foreground">
                 {staged.article.source_name}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
-                {getSummary(staged)}
-              </p>
+              <EditableText
+                value={getSummary(staged)}
+                onUpdate={(v) => onUpdateOverride?.(staged.article.id, "customSummary", v)}
+                className="mt-1 text-xs text-muted-foreground"
+                multiline
+              />
               <WhyItMattersBlock staged={staged} brandConfig={brandConfig} brandName={brandName} />
               <ArticleLinkBlock url={staged.article.url} brandConfig={brandConfig} />
             </div>
@@ -214,7 +409,7 @@ function RundownPreview({ articles, isEmail, brandConfig, brandName }: TemplateP
   );
 }
 
-function QuickHitsPreview({ articles, isEmail, brandConfig, brandName }: TemplatePreviewProps) {
+function QuickHitsPreview({ articles, isEmail, brandConfig, brandName, onUpdateOverride }: TemplatePreviewProps) {
   const bodyFont = brandConfig?.body_font || "Inter";
   const headingFont = brandConfig?.heading_font || "Inter";
   const footerBg = brandConfig?.secondary_color || "#16213e";
@@ -228,19 +423,25 @@ function QuickHitsPreview({ articles, isEmail, brandConfig, brandName }: Templat
       <div className={`p-6 grid gap-4 ${isEmail ? "grid-cols-1" : "grid-cols-3"}`}>
         {articles.map((staged) => (
           <div key={staged.article.id} className="rounded-lg border p-3">
-            {staged.article.thumbnail_url && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={staged.article.thumbnail_url}
-                alt=""
-                className="mb-2 w-full rounded object-cover"
-                style={{ maxHeight: 120 }}
-              />
-            )}
-            <h3 className="text-xs font-semibold leading-snug" style={{ fontFamily: headingFont }}>{getHeadline(staged)}</h3>
-            <p className="mt-1 text-[10px] text-muted-foreground line-clamp-2">
-              {getSummary(staged)}
-            </p>
+            <EditableImage
+              src={getImageUrl(staged)}
+              onUpdate={(url) => onUpdateOverride?.(staged.article.id, "customImageUrl", url)}
+              className="mb-2 w-full rounded object-cover"
+              style={{ maxHeight: 120 }}
+            />
+            <EditableText
+              value={getHeadline(staged)}
+              onUpdate={(v) => onUpdateOverride?.(staged.article.id, "customHeadline", v)}
+              className="text-xs font-semibold leading-snug"
+              style={{ fontFamily: headingFont }}
+              as="h3"
+            />
+            <EditableText
+              value={getSummary(staged)}
+              onUpdate={(v) => onUpdateOverride?.(staged.article.id, "customSummary", v)}
+              className="mt-1 text-[10px] text-muted-foreground"
+              multiline
+            />
             <p className="mt-1 text-[10px] font-medium text-muted-foreground">
               {staged.article.source_name}
             </p>
@@ -257,7 +458,7 @@ function QuickHitsPreview({ articles, isEmail, brandConfig, brandName }: Templat
   );
 }
 
-function DeepDivePreview({ articles, isEmail, brandConfig, brandName }: TemplatePreviewProps) {
+function DeepDivePreview({ articles, isEmail, brandConfig, brandName, onUpdateOverride }: TemplatePreviewProps) {
   const bodyFont = brandConfig?.body_font || "Inter";
   const headingFont = brandConfig?.heading_font || "Inter";
   const accentColor = brandConfig?.accent_color || "#0f3460";
@@ -302,20 +503,28 @@ function DeepDivePreview({ articles, isEmail, brandConfig, brandName }: Template
             <div className="space-y-4">
               {sectionArticles.map((staged) => (
                 <div key={staged.article.id} className="flex gap-3">
-                  {staged.article.thumbnail_url && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={staged.article.thumbnail_url}
-                      alt=""
-                      className="h-20 w-28 rounded object-cover shrink-0"
+                  <EditableImage
+                    src={getImageUrl(staged)}
+                    onUpdate={(url) => onUpdateOverride?.(staged.article.id, "customImageUrl", url)}
+                    className="h-20 w-28 rounded object-cover shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <EditableText
+                      value={getHeadline(staged)}
+                      onUpdate={(v) => onUpdateOverride?.(staged.article.id, "customHeadline", v)}
+                      className="text-sm font-semibold leading-snug"
+                      style={{ fontFamily: headingFont }}
+                      as="h3"
                     />
-                  )}
-                  <div>
-                    <h3 className="text-sm font-semibold leading-snug" style={{ fontFamily: headingFont }}>{getHeadline(staged)}</h3>
                     <p className="mt-0.5 text-[10px] text-muted-foreground">
                       {staged.article.source_name}
                     </p>
-                    <p className="mt-1 text-xs leading-relaxed">{getSummary(staged)}</p>
+                    <EditableText
+                      value={getSummary(staged)}
+                      onUpdate={(v) => onUpdateOverride?.(staged.article.id, "customSummary", v)}
+                      className="mt-1 text-xs leading-relaxed"
+                      multiline
+                    />
                     <WhyItMattersBlock staged={staged} brandConfig={brandConfig} brandName={brandName} />
                     <ArticleLinkBlock url={staged.article.url} brandConfig={brandConfig} />
                   </div>

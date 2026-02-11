@@ -327,7 +327,7 @@ export default function NewsletterEditPage() {
   }, []);
 
   const updateArticleOverride = useCallback(
-    (articleId: string, field: "customHeadline" | "customSummary" | "whyItMatters", value: string) => {
+    (articleId: string, field: "customHeadline" | "customSummary" | "whyItMatters" | "customImageUrl", value: string) => {
       setStagedArticles((prev) =>
         prev.map((s) =>
           s.article.id === articleId ? { ...s, [field]: value } : s
@@ -648,6 +648,7 @@ export default function NewsletterEditPage() {
                   previewMode={previewMode}
                   brandConfig={effectiveBrandConfig}
                   brandName={brandName}
+                  onUpdateOverride={updateArticleOverride}
                 />
               </div>
             </div>
