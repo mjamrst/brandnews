@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Eye, Globe, Mail, Send, Save, Search, Image, Loader2, Check, Copy, ExternalLink } from "lucide-react";
+import { Eye, Globe, Mail, Send, Save, Search, Image, Loader2, Check, Copy, ExternalLink, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { getNewsletter, createNewsletter, getNewsletterWithArticles, updateNewsletter } from "@/lib/api/newsletters";
 import { replaceNewsletterArticles } from "@/lib/api/newsletter-articles";
@@ -68,6 +68,33 @@ export default function NewsletterEditPage() {
 
   const [previewMode, setPreviewMode] = useState<"web" | "email">("web");
   const [articleSearch, setArticleSearch] = useState("");
+
+  // Resizable panel
+  const [panelWidth, setPanelWidth] = useState(384); // 24rem = 384px (w-96)
+  const isDragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const newWidth = Math.min(Math.max(e.clientX - rect.left, 280), rect.width - 400);
+      setPanelWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   // Load data on mount
   useEffect(() => {
@@ -480,9 +507,9 @@ export default function NewsletterEditPage() {
         }
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div ref={containerRef} className="flex flex-1 overflow-hidden">
         {/* Left: Staging area */}
-        <div className="flex w-96 flex-col border-r">
+        <div className="flex flex-col border-r" style={{ width: panelWidth, minWidth: 280 }}>
           {/* Brand picker */}
           <div className="border-b p-3 space-y-2">
             <div className="space-y-1">
@@ -590,6 +617,18 @@ export default function NewsletterEditPage() {
               </div>
             </ScrollArea>
           </div>
+        </div>
+
+        {/* Resize handle */}
+        <div
+          onMouseDown={() => {
+            isDragging.current = true;
+            document.body.style.cursor = "col-resize";
+            document.body.style.userSelect = "none";
+          }}
+          className="group relative flex w-1.5 shrink-0 cursor-col-resize items-center justify-center hover:bg-primary/10 active:bg-primary/20 transition-colors"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground/80 transition-colors" />
         </div>
 
         {/* Right: Preview */}
