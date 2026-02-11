@@ -39,6 +39,10 @@ export function createServiceClient() {
       db: {
         schema: 'the_brief',
       },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
     }
   );
 }

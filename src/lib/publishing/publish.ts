@@ -13,14 +13,17 @@ type SupabaseClient = any;
 export async function fetchNewsletterData(
   supabase: SupabaseClient,
   newsletterId: string,
-): Promise<NewsletterData | null> {
+): Promise<NewsletterData> {
   const { data: newsletter, error: nErr } = await supabase
     .from('newsletters')
     .select('*')
     .eq('id', newsletterId)
     .single();
 
-  if (nErr || !newsletter) return null;
+  if (nErr || !newsletter) {
+    console.error('[publish] Newsletter query failed:', nErr?.message);
+    throw new Error(`Newsletter query failed: ${nErr?.message || 'not found'}`);
+  }
 
   const { data: articleRows, error: aErr } = await supabase
     .from('newsletter_articles')
@@ -29,7 +32,6 @@ export async function fetchNewsletterData(
       section,
       custom_headline,
       custom_summary,
-      why_it_matters,
       articles (
         id,
         url,
@@ -43,7 +45,10 @@ export async function fetchNewsletterData(
     .eq('newsletter_id', newsletterId)
     .order('position', { ascending: true });
 
-  if (aErr || !articleRows) return null;
+  if (aErr || !articleRows) {
+    console.error('[publish] Articles query failed:', aErr?.message);
+    throw new Error(`Articles query failed: ${aErr?.message || 'no data'}`);
+  }
 
   const articles: TemplateArticle[] = [];
   for (const row of articleRows as Record<string, unknown>[]) {
@@ -75,7 +80,7 @@ export async function fetchNewsletterData(
       section: (row.section as string) ?? null,
       custom_headline: (row.custom_headline as string) ?? null,
       custom_summary: (row.custom_summary as string) ?? null,
-      why_it_matters: (row.why_it_matters as string) ?? null,
+      why_it_matters: null,
     });
   }
 
@@ -102,7 +107,6 @@ export async function publishNewsletter(
   newsletterId: string,
 ): Promise<{ url: string }> {
   const data = await fetchNewsletterData(supabase, newsletterId);
-  if (!data) throw new Error('Newsletter not found');
 
   const template = getTemplate(data.template_id);
   if (!template) throw new Error(`Unknown template: ${data.template_id}`);
@@ -120,12 +124,8 @@ export async function publishNewsletter(
 
   if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`);
 
-  // Get the public URL
-  const { data: urlData } = supabase.storage
-    .from(STORAGE_BUCKET)
-    .getPublicUrl(filePath);
-
-  const publicUrl = urlData.publicUrl;
+  // Use the app's own route for the public URL (renders with React)
+  const publicUrl = `/newsletters/${newsletterId}`;
 
   // Update newsletter record
   const { error: updateErr } = await supabase

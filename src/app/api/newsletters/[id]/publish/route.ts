@@ -8,6 +8,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+    console.log('[publish] Newsletter ID:', id);
     const supabase = createServiceClient();
 
     // Verify newsletter exists
@@ -17,8 +18,10 @@ export async function POST(
       .eq('id', id)
       .single();
 
+    console.log('[publish] Query result:', { newsletter, fetchError });
+
     if (fetchError || !newsletter) {
-      return NextResponse.json({ error: 'Newsletter not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Newsletter not found', detail: fetchError?.message }, { status: 404 });
     }
 
     // Render HTML, upload to Storage, update status

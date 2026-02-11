@@ -125,6 +125,12 @@ export default function NewsletterEditPage() {
           if (cancelled) return;
           setNewsletter(nlWithArticles);
 
+          // Restore published state if already published
+          if (nlWithArticles.published_url) {
+            const url = nlWithArticles.published_url;
+            setPublishedUrl(url.startsWith("http") ? url : `${window.location.origin}${url}`);
+          }
+
           // Map existing newsletter articles to staged articles
           if (nlWithArticles.newsletter_articles) {
             type NewsletterArticleJoin = {
